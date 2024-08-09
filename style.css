@@ -1,0 +1,15 @@
+body{
+    display: flex;
+    min-height: 100svh;
+    min-width: 100svw;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+canvas {
+    background-image: url('img/background.jpeg');
+    background-size: cover; /* atau gunakan background-size: 100% 100%; */
+    background-repeat: no-repeat;
+    border: 5px solid black;
+}
