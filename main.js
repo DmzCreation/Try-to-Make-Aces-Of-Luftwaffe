@@ -22,10 +22,14 @@ class InputHandler {
 
         document.addEventListener('keydown', (e) => {
             const key = e.key;
-            if (!this.game.keys.includes(key) && ['a', 's', 'd', 'w', ' '].includes(key)) {
+            if (!this.game.keys.includes(key) && ['a', 's', 'd', 'w', ' ', 'r'].includes(key)) {
                 this.game.keys.push(key);
                 if (key === ' ') {
                     this.game.player.weapon.handleShoot(this.game.deltaTime);
+                }
+                if(key === 'r' && this.game.gameOver){
+                    this.game.resetGame()
+
                 }
             }
         });
@@ -328,8 +332,8 @@ class SupplyEnemy {
         this.x = x;
         this.y = y;
         this.code = code;
-        this.width = 96;
-        this.height = 96;
+        this.width = 80;
+        this.height = 80;
         this.direction = direction;
         this.speed = 4;
         this.velocityX = 0;
@@ -949,44 +953,57 @@ class Player {
         this.velocityX = 0;
         this.velocityY = 0;
         this.maxMouseSpeed = 10; // Maximum speed when following the mouse
-
+        
         // Initialize weapon after player properties are set
         this.weapon = new Weapon(this.game, this);
-        this.dead = false
-        this.deadAnimationTime = 5000
-        this.deadAnimationTimer = 0
+        
+        // Animation properties
+        this.dead = false;
+        this.deadAnimationTime = 3000; // Duration of the death animation in milliseconds
+        this.deadAnimationTimer = 0;
+        this.rotationAngle = 0;
     }
 
     update(deltaTime) {
-        if(this.hp <= 0){
-            handleDeath(deltaTime)
+        if(handleCollision(this, this.game.boss)){
+            this.deathAnimation(deltaTime)
         }
-        else{
+        if (this.health <= 0 || this.dead) {
+            this.health = 0;
+            this.deathAnimation(deltaTime);
+        } else {
             if (this.game.mouseDown) {
                 this.mouseMovement(deltaTime);
             } else {
                 this.movementHandling(deltaTime);
             }
             this.weapon.update(deltaTime);
-
         }
     }
 
     draw(context) {
-        if(this.dead){
-
+        if (this.dead) {
+            // Draw the falling animation
+            context.save();
+            context.translate(this.x + this.width / 2, this.y + this.height / 2);
+            context.rotate(this.rotationAngle);
+            context.translate(-this.width / 2, -this.height / 2);
+            context.fillStyle = 'red'; // For visibility, replace with your image or design
+            context.fillRect(0, 0, this.width, this.height);
+            context.restore();
+            return;
         }
+        
         this.weapon.draw(context);
         context.lineWidth = 1;
         context.strokeRect(this.x, this.y, this.width, this.height);
 
-        context.fillStyle = 'black'
-        context.font = '16px Arial'
-        context.fillText(this.health, this.x, this.y)
+        context.fillStyle = 'black';
+        context.font = '16px Arial';
+        context.fillText(this.health, this.x, this.y);
     }
 
     movementHandling(deltaTime) {
-    
         const left = this.game.keys.includes('a');
         const right = this.game.keys.includes('d');
         const up = this.game.keys.includes('w');
@@ -1034,26 +1051,38 @@ class Player {
         }
 
         this.weapon.handleShoot(deltaTime);
+        if (this.x < 0) this.x = 0;
+        if (this.x + this.width > this.game.width) this.x = this.game.width - this.width;
+        if (this.y < 0) this.y = 0;
+        if (this.y + this.height > this.game.height) this.y = this.game.height - this.height;
     }
 
     takeDamage(dmg) {
         this.health -= dmg;
     }
-    
-    deathAnimation(deltaTime){
-        if(!this.dead){
-            this.dead = true
-        }
-        else{
-            if(this.deadAnimationTimer >= this.deadAnimationTime){
-                this.game.gameOver = true
+
+    deathAnimation(deltaTime) {
+        if (!this.dead) {
+            this.dead = true;
+            this.deadAnimationTimer = 0; // Reset timer when death starts
+        } else {
+            if (this.deadAnimationTimer >= this.deadAnimationTime) {
+                this.game.gameOver = true;
+                return;
             }
-            else{
-                this.deadAnimationTimer += deltaTime
-            }
+
+            this.deadAnimationTimer += deltaTime;
+            this.y += 50 * deltaTime / 1000; // Adjust fall speed
+            this.rotationAngle += 0.1; // Rotate slowly
+
+            // Gradually reduce size for a more dramatic effect
+            this.width = Math.max(10, this.width * (1 - deltaTime / this.deadAnimationTime));
+            this.height = Math.max(10, this.height * (1 - deltaTime / this.deadAnimationTime));
+
         }
     }
 }
+
 
 class Game {
     constructor(canvas) {
@@ -1068,52 +1097,82 @@ class Game {
         this.projectiles = [];
         this.enemies = [];
         this.supplies = [];
-        this.boss = new Boss(this)
+        this.boss = new Boss(this);
 
         this.enemyTimer = 5000;
         this.enemyCooldown = 10000;
 
-        this.gameOver = false
+        this.gameOver = false;
+        this.blackScreenOpacity = 0;
     }
 
     update(deltaTime) {
-        this.projectiles.forEach((projectile, index) => {
-            projectile.update(deltaTime);
-            if (projectile.y < 0 || projectile.markedForDeletion) {
-                this.projectiles.splice(index, 1); // Remove projectile if it goes off-screen
+        if (!this.gameOver) {
+            this.projectiles.forEach((projectile, index) => {
+                projectile.update(deltaTime);
+                if (projectile.y < 0 || projectile.markedForDeletion) {
+                    this.projectiles.splice(index, 1); // Remove projectile if it goes off-screen
+                }
+            });
+            this.player.update(deltaTime);
+            this.supplies.forEach((supply, index) => {
+                supply.update(deltaTime);
+                if (supply.markedForDeletion) {
+                    this.supplies.splice(index, 1);
+                }
+            });
+            this.enemies.forEach((enemy, index) => {
+                enemy.update(deltaTime);
+                if (enemy.markedForDeletion) {
+                    this.enemies.splice(index, 1);
+                }
+            });
+            this.boss.update(deltaTime);
+    
+            if (this.enemyTimer >= this.enemyCooldown) {
+                this.spawnSupply();
+                this.enemyTimer = 0;
+            } else {
+                this.enemyTimer += deltaTime;
             }
-        });
-        this.player.update(deltaTime);
-        this.supplies.forEach((supply, index) => {
-            supply.update(deltaTime);
-            if (supply.markedForDeletion) {
-                this.supplies.splice(index, 1);
-            }
-        });
-        this.enemies.forEach((enemy, index) => {
-            enemy.update(deltaTime);
-            if (enemy.markedForDeletion) {
-                this.enemies.splice(index, 1);
-            }
-        });
-        this.boss.update(deltaTime)
-
-        if (this.enemyTimer >= this.enemyCooldown) {
-            // this.spawnSupply();
-            this.enemyTimer = 0;
-        } else {
-            this.enemyTimer += deltaTime;
         }
     }
 
     draw(context) {
-        this.boss.draw(context)
-        this.player.draw(context);
-        this.projectiles.forEach(projectile => {
-            projectile.draw(context);
-        });
-        this.supplies.forEach(supply => supply.draw(context));
-        this.enemies.forEach(enemy => enemy.draw(context));
+        if (!this.gameOver) {
+            this.player.draw(context);
+            this.projectiles.forEach(projectile => {
+                projectile.draw(context);
+            });
+            this.supplies.forEach(supply => supply.draw(context));
+            this.enemies.forEach(enemy => enemy.draw(context));
+            this.boss.draw(context);
+        } else {
+            // Draw black screen with increasing opacity
+            context.fillStyle = `rgba(0, 0, 0, ${this.blackScreenOpacity})`;
+            context.fillRect(0, 0, this.width, this.height);
+            
+            this.blackScreenOpacity = Math.min(this.blackScreenOpacity + 0.05, 1); // Cap opacity at 1
+            
+            // Draw Game Over text
+            context.fillStyle = 'white';
+            context.font = '64px Arial';
+            const text = 'Game Over';
+            const textWidth = context.measureText(text).width;
+            const x = (this.width - textWidth) / 2;
+            const y = (this.height / 2) - 32; // Adjust for vertical centering
+            
+            context.fillText(text, x, y);
+            
+            // Draw Retry text
+            context.font = '32px Arial';
+            const text1 = "Press 'R' to Retry!";
+            const textWidth1 = context.measureText(text1).width;
+            const x1 = (this.width - textWidth1) / 2;
+            const y1 = (this.height / 2) + 32; // Position below the Game Over text
+            
+            context.fillText(text1, x1, y1);
+        }
 
     }
 
@@ -1134,9 +1193,26 @@ class Game {
             this.enemies.push(new SupplyEnemy(this, spawnX, y, direction, randomCode));
         }
     }
-    
-    
+
+    resetGame(){
+        this.player = new Player(this);
+        this.mouse = new Mouse(this);
+        this.input = new InputHandler(this);
+        this.mouseDown = false;
+        this.keys = [];
+        this.projectiles = [];
+        this.enemies = [];
+        this.supplies = [];
+        this.boss = new Boss(this);
+
+        this.enemyTimer = 5000;
+        this.enemyCooldown = 10000;
+
+        this.gameOver = false;
+        this.blackScreenOpacity = 0;
+    }
 }
+
 
 window.onload = () => {
     const canvas = document.getElementById('my-canvas');
